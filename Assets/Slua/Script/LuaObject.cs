@@ -203,19 +203,7 @@ return index
 		static public int GetType(IntPtr l)
 		{
 			object obj = checkVar(l, 1);
-
-			string t = obj.GetType ().FullName;
-			string[] subt = t.Split(new Char[] { '.' });
-			
-			LuaDLL.lua_pushglobaltable(l);
-			
-			for (int n = 0; n < subt.Length; n++)
-			{
-				t = subt[n];
-				LuaDLL.lua_pushstring(l, t);
-				LuaDLL.lua_rawget(l, -2);
-				LuaDLL.lua_remove(l, -2);
-			}
+            pushObject(l, obj.GetType());
 			return 1;
 		}
 
@@ -561,7 +549,7 @@ return index
 			if (self.IsValueType)
 			{
 				LuaDLL.lua_pushvalue(l, -1);
-				LuaDLL.lua_setfield(l, LuaIndexes.LUA_REGISTRYINDEX, self.FullName + ".Instance");
+                LuaDLL.lua_setglobal(l, self.FullName + ".Instance");
 			}
 			LuaDLL.lua_setfield(l, LuaIndexes.LUA_REGISTRYINDEX,  ObjectCache.getAQName(self));
 		}
@@ -640,6 +628,16 @@ return index
 			return 0;
 		}
 
+        static internal void gc(IntPtr l,int p,UnityEngine.Object o)
+        {
+            // set ud's metatable is nil avoid gc again
+            LuaDLL.lua_pushnil(l);
+            LuaDLL.lua_setmetatable(l, p);
+
+            ObjectCache t = ObjectCache.get(l);
+            t.gc(o);
+        }
+
 		static public void checkLuaObject(IntPtr l, int p)
 		{
 			LuaDLL.lua_getmetatable(l, p);
@@ -683,9 +681,10 @@ return index
 
 			switch (lt)
 			{
+                case LuaTypes.LUA_TNIL:
+                    return !t.IsValueType && !t.IsPrimitive;
 				case LuaTypes.LUA_TNUMBER:
-					return t == typeof(Single) || t == typeof(double) || t == typeof(int) || t == typeof(Int16)
-						|| t == typeof(UInt16) || t == typeof(UInt32) || t == typeof(byte) || t == typeof(Int64) || t.IsEnum;
+					return t.IsPrimitive || t.IsEnum;
 				case LuaTypes.LUA_TUSERDATA:
 					object o = checkObj(l, p);
 					Type ot = o.GetType();
@@ -696,15 +695,18 @@ return index
 					return t == typeof(bool);
 				case LuaTypes.LUA_TTABLE:
 					{
-						if (t.IsValueType)
+						if (t == typeof(LuaTable))
+							return true;
+						else if (t.IsValueType)
 							return luaTypeCheck(l, p, t.Name);
 						else if (LuaDLL.luaS_subclassof(l, p, t.Name) == 1)
 							return true;
 						else
-							return t == typeof(LuaTable);
+							return false;
 					}
 				case LuaTypes.LUA_TFUNCTION:
 					return t == typeof(LuaFunction) || t.BaseType == typeof(MulticastDelegate);
+                    
 			}
 			return false;
 		}
@@ -733,6 +735,45 @@ return index
 			return LuaDLL.luaS_checkluatype(l, p, null) == 1;
 		}
 
+		public static bool matchType(IntPtr l, int p, Type t1)
+		{
+			LuaTypes t = LuaDLL.lua_type(l, p);
+			return matchType(l, p, t, t1);
+		}
+
+		public static bool matchType(IntPtr l, int total, int from, Type t1)
+		{
+			if (total - from + 1 != 1)
+				return false;
+
+			return matchType(l, from, t1);
+		}
+
+		public static bool matchType(IntPtr l, int total, int from, Type t1, Type t2)
+		{
+			if (total - from + 1 != 2)
+				return false;
+
+			return matchType(l, from, t1) && matchType(l, from + 1, t2);
+		}
+
+		public static bool matchType(IntPtr l, int total, int from, Type t1, Type t2, Type t3)
+		{
+			if (total - from + 1 != 3)
+				return false;
+
+			return matchType(l, from, t1) && matchType(l, from + 1, t2) && matchType(l, from + 2, t3);
+		}
+
+		public static bool matchType(IntPtr l, int total, int from, Type t1, Type t2, Type t3, Type t4)
+		{
+			if (total - from + 1 != 4)
+				return false;
+
+			return matchType(l, from, t1) && matchType(l, from + 1, t2) && matchType(l, from + 2, t3) && matchType(l, from + 3, t4);
+		}
+
+		// more than 4 args
 		public static bool matchType(IntPtr l, int total, int from, params Type[] types)
 		{
 			if (total - from + 1 != types.Length)
@@ -941,37 +982,51 @@ return index
 			return true;
 		}
 
-		static Dictionary<string, Type> typeCache = new Dictionary<string, Type>();
 		static public bool checkType(IntPtr l, int p, out Type t)
 		{
 			string tname = null;
 			LuaTypes lt = LuaDLL.lua_type(l, p);
-			if (lt == LuaTypes.LUA_TTABLE)
-			{
-				LuaDLL.lua_pushstring(l, "__fullname");
-				LuaDLL.lua_rawget(l, p);
-				tname = LuaDLL.lua_tostring(l, -1);
-				LuaDLL.lua_pop(l, 1);
-			}
-			else if (lt == LuaTypes.LUA_TSTRING)
-			{
-				checkType(l,p, out tname);
-			}
+            switch (lt)
+            {
+                case LuaTypes.LUA_TUSERDATA:
+                    object o = checkObj(l, p);
+                    if (o.GetType() != typeof(Type))
+                        LuaDLL.luaL_error(l, "{0} expect Type, got {1}", p, o.GetType().Name);
+                    t = (Type)o;
+                    break;
+                case LuaTypes.LUA_TTABLE:
+                    LuaDLL.lua_pushstring(l, "__type");
+                    LuaDLL.lua_rawget(l, p);
+                    if (!LuaDLL.lua_isnil(l, -1))
+                    {
+                        t = (Type)checkObj(l, -1);
+                        LuaDLL.lua_pop(l, 1);
+                        return true;
+                    }
+                    else
+                    {
+                        LuaDLL.lua_pushstring(l, "__fullname");
+                        LuaDLL.lua_rawget(l, p);
+                        tname = LuaDLL.lua_tostring(l, -1);
+                        LuaDLL.lua_pop(l, 1);
+                    }
+                    break;
+
+                case LuaTypes.LUA_TSTRING:
+                    checkType(l, p, out tname);
+                    break;
+            }
 
 			if (tname == null)
 				LuaDLL.luaL_error(l, "expect string or type table");
 
-			if (typeCache.TryGetValue(tname, out t))
-			{
-				return true;
-			}
-
-
 			t = Type.GetType(tname);
-			if (t != null)
-			{
-				typeCache[tname] = t;
-			}
+            if (t != null)
+            {
+                LuaDLL.lua_pushstring(l, "__type");
+                pushObject(l, t);
+                LuaDLL.lua_rawset(l, p);
+            }
 			return t != null;
 		}
 
@@ -1193,7 +1248,7 @@ return index
 								checkType(l, p, out c);
 								return c;
 							}
-							LuaDLL.luaL_error(l, "unknown lua value type");
+							Debug.LogError("unknown lua value type");
 							return null;
 						}
 						else if (isLuaClass(l, p))
@@ -1443,25 +1498,30 @@ return index
 
 		public static void setBack(IntPtr l, Vector3 v)
 		{
-			LuaDLL.luaS_setData(l, 1, v.x, v.y, v.z, float.NaN);
+			LuaDLL.luaS_setDataVec(l, 1, v.x, v.y, v.z, float.NaN);
 		}
 
 		public static void setBack(IntPtr l, Vector2 v)
 		{
-			LuaDLL.luaS_setData(l, 1, v.x, v.y, float.NaN, float.NaN);
+			LuaDLL.luaS_setDataVec(l, 1, v.x, v.y, float.NaN, float.NaN);
 		}
 
 		public static void setBack(IntPtr l, Vector4 v)
 		{
-			LuaDLL.luaS_setData(l, 1, v.x, v.y, v.z, v.w);
+			LuaDLL.luaS_setDataVec(l, 1, v.x, v.y, v.z, v.w);
 		}
 
 		public static void setBack(IntPtr l, Quaternion v)
 		{
-			LuaDLL.luaS_setData(l, 1, v.x, v.y, v.z, v.w);
+			LuaDLL.luaS_setDataVec(l, 1, v.x, v.y, v.z, v.w);
 		}
 
-		public static int extractFunction(IntPtr l, int p)
+        public static void setBack(IntPtr l, Color v)
+        {
+            LuaDLL.luaS_setDataVec(l, 1, v.r, v.g, v.b, v.a);
+        }
+
+        public static int extractFunction(IntPtr l, int p)
 		{
 			int op = 0;
 			LuaTypes t = LuaDLL.lua_type(l, p);

@@ -500,8 +500,10 @@ namespace SLua
 			LuaDLL.lua_pushcfunction(L, import);
 			LuaDLL.lua_setglobal(L, "import");
 
+
 			string resumefunc = @"
 local resume = coroutine.resume
+local unpack = unpack or table.unpack
 coroutine.resume=function(co,...)
 	local ret={resume(co,...)}
 	if not ret[1] then UnityEngine.Debug.LogError(debug.traceback(co,ret[2])) end
@@ -819,7 +821,7 @@ end
 				int oldTop = LuaDLL.lua_gettop(L);
 				LuaDLL.lua_getref(L, reference);
 				LuaDLL.lua_rawgeti(L, -1, index);
-				object returnValue = LuaObject.checkVar(L, -1);
+				object returnValue = getObject(L, -1);
 				LuaDLL.lua_settop(L, oldTop);
 				return returnValue;
 			}
@@ -911,6 +913,7 @@ end
 
 		object getObject(IntPtr l, int p)
 		{
+			p = LuaDLL.lua_absindex(l,p);
 			return LuaObject.checkVar(l, p);
 		}
 

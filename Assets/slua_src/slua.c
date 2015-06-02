@@ -21,11 +21,6 @@
 // THE SOFTWARE.
 
 
-// *** you can remove slua.c file from xcode on build ios project ***
-
-// *** 这个文件仅用于编译libslua.a，ios发布工程时，可以删除这个文件，避免编译错误。
-
-
 #define MT_VEC2 1
 #define MT_VEC3 2
 #define MT_VEC4 3
@@ -52,6 +47,35 @@ static const luaL_Reg s_lib_preload[] = {
   	{ NULL,        NULL }
 };
 
+#if LUA_VERSION_NUM >= 503
+
+static const char *luaL_findtable(lua_State *L, int idx,
+	const char *fname, int szhint) {
+	const char *e;
+	if (idx) lua_pushvalue(L, idx);
+	do {
+		e = strchr(fname, '.');
+		if (e == NULL) e = fname + strlen(fname);
+		lua_pushlstring(L, fname, e - fname);
+		if (lua_rawget(L, -2) == LUA_TNIL) {  /* no such field? */
+			lua_pop(L, 1);  /* remove this nil */
+			lua_createtable(L, 0, (*e == '.' ? 1 : szhint)); /* new table for field */
+			lua_pushlstring(L, fname, e - fname);
+			lua_pushvalue(L, -2);
+			lua_settable(L, -4);  /* set new table into field */
+		}
+		else if (!lua_istable(L, -1)) {  /* field has a non-table value? */
+			lua_pop(L, 2);  /* remove table and value */
+			return fname;  /* return problematic part of the name */
+		}
+		lua_remove(L, -2);  /* remove previous table */
+		fname = e + 1;
+	} while (*e == '.');
+	return NULL;
+}
+
+#endif
+
 LUA_API void luaS_openextlibs(lua_State *L) {
 	const luaL_Reg *lib;
 
@@ -62,6 +86,8 @@ LUA_API void luaS_openextlibs(lua_State *L) {
 		lua_pushcfunction(L, lib->func);
 		lua_setfield(L, -2, lib->name);
 	}
+
+	lua_pop(L, 1);
 }
 
 LUA_API void luaS_newuserdata(lua_State *L, int val)
@@ -104,8 +130,7 @@ static int k(lua_State *L, int status, lua_KContext ctx) {
 }
 
 LUA_API int luaS_yield(lua_State *L, int nrets) {
-	int ret = lua_yieldk(L, nrets, 0, k);
-	return ret;
+	return k(L, lua_yieldk(L, nrets, 0, k), 0);
 }
 
 LUA_API int luaS_pcall(lua_State *L, int nargs, int nresults, int err) {
@@ -123,7 +148,7 @@ static void getmetatable(lua_State *L, const char* key) {
 	snprintf(ns, 256, "UnityEngine.%s.Instance", key);
 #endif
 
-	lua_getfield(L, LUA_REGISTRYINDEX, ns);
+	lua_getglobal(L, ns);
 }
 
 static void setmetatable(lua_State *L, int p, int what) {
@@ -206,19 +231,20 @@ LUA_API int luaS_checkluatype(lua_State *L, int p, const char *t) {
 		lua_settop(L, top);
 		return strcmp(t, b) == 0;
 	}
+	lua_settop(L, top);
 	return 1;
 }
 
 
 LUA_API void luaS_checkVector4(lua_State *L, int p, float* x, float *y, float *z, float *w) {
 	luaL_checktype(L, p, LUA_TTABLE);
-	lua_getfield(L, p, "x");
+	lua_rawgeti(L, p, 1);
 	*x = (float)lua_tonumber(L, -1);
-	lua_getfield(L, p, "y");
+	lua_rawgeti(L, p, 2);
 	*y = (float)lua_tonumber(L, -1);
-	lua_getfield(L, p, "z");
+	lua_rawgeti(L, p, 3);
 	*z = (float)lua_tonumber(L, -1);
-	lua_getfield(L, p, "w");
+	lua_rawgeti(L, p, 4);
 	*w = (float)lua_tonumber(L, -1);
 	lua_pop(L, 4);
 }
@@ -226,24 +252,23 @@ LUA_API void luaS_checkVector4(lua_State *L, int p, float* x, float *y, float *z
 LUA_API void luaS_pushVector4(lua_State *L, float x, float y, float z, float w) {
 	lua_newtable(L);
 	lua_pushnumber(L, x);
-	lua_setfield(L, -2, "x");
+	lua_rawseti(L, -2, 1);
 	lua_pushnumber(L, y);
-	lua_setfield(L, -2, "y");
+	lua_rawseti(L, -2, 2);
 	lua_pushnumber(L, z);
-	lua_setfield(L, -2, "z");
+	lua_rawseti(L, -2, 3);
 	lua_pushnumber(L, w);
-	lua_setfield(L, -2, "w");
-
+	lua_rawseti(L, -2, 4);
 	setmetatable(L, -2, MT_VEC4);
 }
 
 LUA_API void luaS_checkVector3(lua_State *L, int p, float* x, float *y, float *z) {
 	luaL_checktype(L, p, LUA_TTABLE);
-	lua_getfield(L, p, "x");
+	lua_rawgeti(L, p, 1);
 	*x = (float)lua_tonumber(L, -1);
-	lua_getfield(L, p, "y");
+	lua_rawgeti(L, p, 2);
 	*y = (float)lua_tonumber(L, -1);
-	lua_getfield(L, p, "z");
+	lua_rawgeti(L, p, 3);
 	*z = (float)lua_tonumber(L, -1);
 	lua_pop(L, 3);
 }
@@ -251,21 +276,19 @@ LUA_API void luaS_checkVector3(lua_State *L, int p, float* x, float *y, float *z
 LUA_API void luaS_pushVector3(lua_State *L, float x, float y, float z) {
 	lua_newtable(L);
 	lua_pushnumber(L, x);
-	lua_setfield(L, -2, "x");
+	lua_rawseti(L, -2, 1);
 	lua_pushnumber(L, y);
-	lua_setfield(L, -2, "y");
+	lua_rawseti(L, -2, 2);
 	lua_pushnumber(L, z);
-	lua_setfield(L, -2, "z");
-
-
+	lua_rawseti(L, -2, 3);
 	setmetatable(L, -2, MT_VEC3);
 }
 
 LUA_API void luaS_checkVector2(lua_State *L, int p, float* x, float *y) {
 	luaL_checktype(L, p, LUA_TTABLE);
-	lua_getfield(L, p, "x");
+	lua_rawgeti(L, p, 1);
 	*x = (float)lua_tonumber(L, -1);
-	lua_getfield(L, p, "y");
+	lua_rawgeti(L, p, 2);
 	*y = (float)lua_tonumber(L, -1);
 	lua_pop(L, 2);
 }
@@ -273,35 +296,34 @@ LUA_API void luaS_checkVector2(lua_State *L, int p, float* x, float *y) {
 LUA_API void luaS_pushVector2(lua_State *L, float x, float y) {
 	lua_newtable(L);
 	lua_pushnumber(L, x);
-	lua_setfield(L, -2, "x");
+	lua_rawseti(L, -2, 1);
 	lua_pushnumber(L, y);
-	lua_setfield(L, -2, "y");
-
+	lua_rawseti(L, -2, 2);
 	setmetatable(L, -2, MT_VEC2);
 }
 
 LUA_API void luaS_checkQuaternion(lua_State *L, int p, float* x, float *y, float *z, float* w) {
 	luaL_checktype(L, p, LUA_TTABLE);
-	lua_getfield(L, p, "x");
+	lua_rawgeti(L, p, 1);
 	*x = (float)lua_tonumber(L, -1);
-	lua_getfield(L, p, "y");
+	lua_rawgeti(L, p, 2);
 	*y = (float)lua_tonumber(L, -1);
-	lua_getfield(L, p, "z");
+	lua_rawgeti(L, p, 3);
 	*z = (float)lua_tonumber(L, -1);
-	lua_getfield(L, p, "w");
+	lua_rawgeti(L, p, 4);
 	*w = (float)lua_tonumber(L, -1);
 	lua_pop(L, 4);
 }
 
 LUA_API void luaS_checkColor(lua_State *L, int p, float* x, float *y, float *z, float* w) {
 	luaL_checktype(L, p, LUA_TTABLE);
-	lua_getfield(L, p, "r");
+	lua_rawgeti(L, p, 1);
 	*x = (float)lua_tonumber(L, -1);
-	lua_getfield(L, p, "g");
+	lua_rawgeti(L, p, 2);
 	*y = (float)lua_tonumber(L, -1);
-	lua_getfield(L, p, "b");
+	lua_rawgeti(L, p, 3);
 	*z = (float)lua_tonumber(L, -1);
-	lua_getfield(L, p, "a");
+	lua_rawgeti(L, p, 4);
 	*w = (float)lua_tonumber(L, -1);
 	lua_pop(L, 4);
 }
@@ -309,28 +331,26 @@ LUA_API void luaS_checkColor(lua_State *L, int p, float* x, float *y, float *z, 
 LUA_API void luaS_pushQuaternion(lua_State *L, float x, float y, float z, float w) {
 	lua_newtable(L);
 	lua_pushnumber(L, x);
-	lua_setfield(L, -2, "x");
+	lua_rawseti(L, -2, 1);
 	lua_pushnumber(L, y);
-	lua_setfield(L, -2, "y");
+	lua_rawseti(L, -2, 2);
 	lua_pushnumber(L, z);
-	lua_setfield(L, -2, "z");
+	lua_rawseti(L, -2, 3);
 	lua_pushnumber(L, w);
-	lua_setfield(L, -2, "w");
-
+	lua_rawseti(L, -2, 4);
 	setmetatable(L, -2, MT_Q);
 }
 
 LUA_API void luaS_pushColor(lua_State *L, float x, float y, float z, float w) {
 	lua_newtable(L);
 	lua_pushnumber(L, x);
-	lua_setfield(L, -2, "r");
+	lua_rawseti(L, -2, 1);
 	lua_pushnumber(L, y);
-	lua_setfield(L, -2, "g");
+	lua_rawseti(L, -2, 2);
 	lua_pushnumber(L, z);
-	lua_setfield(L, -2, "b");
+	lua_rawseti(L, -2, 3);
 	lua_pushnumber(L, w);
-	lua_setfield(L, -2, "a");
-
+	lua_rawseti(L, -2, 4);
 	setmetatable(L, -2, MT_COLOR);
 }
 
@@ -345,11 +365,25 @@ static void setelement(lua_State* L, int p, float v, const char* key) {
 }
 
 
+static void setelementid(lua_State* L, int p, float v, int id) {
+	if (!isnan(v)) {
+		lua_pushnumber(L, v);
+		lua_rawseti(L, p, id);
+	}
+}
+
 LUA_API void luaS_setData(lua_State *L, int p, float x, float y, float z, float w) {
 	setelement(L, p, x, "x");
 	setelement(L, p, y, "y");
 	setelement(L, p, z, "z");
 	setelement(L, p, w, "w");
+}
+
+LUA_API void luaS_setDataVec(lua_State *L, int p, float x, float y, float z, float w) {
+	setelementid(L, p, x, 1);
+	setelementid(L, p, y, 2);
+	setelementid(L, p, z, 3);
+	setelementid(L, p, w, 4);
 }
 
 LUA_API void luaS_setColor(lua_State *L, int p, float x, float y, float z, float w) {
