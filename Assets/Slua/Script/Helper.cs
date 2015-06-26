@@ -23,12 +23,9 @@
 namespace SLua
 {
 	using System.Collections;
-	using System.Collections.Generic;
 	using System;
 	using LuaInterface;
 	using System.Reflection;
-	using System.Runtime.InteropServices;
-    using UnityEngine;
 
     class Helper : LuaObject
 	{
@@ -60,8 +57,13 @@ local function Class(base,static,instance)
                                 ret_field = r[k]
                             end
 
-                            t[k] = ret_field
                             return ret_field
+                        end,
+
+                        __newindex = function(t,k,v)
+                            if not pcall(function() r[k]=v end) then
+                                rawset(t,k,v)
+                            end
                         end,
                     })
 
@@ -223,23 +225,55 @@ return Class
 			LuaDLL.lua_pushvalue (l, 1);
 			return 1;
 		}
-		
-		static public void reg(IntPtr l)
-		{
-			reg(l, CreateClass, "Slua");
-			reg(l, GetClass, "Slua");
-			reg(l, iter, "Slua");
-			reg(l, ToString, "Slua");
-			reg(l, As, "Slua");
 
-			newTypeTable(l, "Slua");
+        [MonoPInvokeCallbackAttribute(typeof(LuaCSFunction))]
+        static public int IsNull(IntPtr l)
+        {
+            LuaTypes t = LuaDLL.lua_type(l, 1);
+            if (t == LuaTypes.LUA_TNIL)
+                pushValue(l, true);
+            else if (t == LuaTypes.LUA_TUSERDATA)
+            {
+                object o = checkObj(l, 1);
+                if (o is UnityEngine.Object)
+                    pushValue(l, (o as UnityEngine.Object) == null);
+                else
+                    pushValue(l, o == null);
+            }
+            else
+                pushValue(l, false);
+
+            return 1;
+        }
+
+        static LuaOut luaOut = new LuaOut();
+        [MonoPInvokeCallbackAttribute(typeof(LuaCSFunction))]
+        static public int get_out(IntPtr l)
+        {
+            pushObject(l, luaOut);
+            return 1;
+        }
+
+        static public void reg(IntPtr l)
+		{
+            getTypeTable(l, "Slua");
+            addMember(l, CreateClass, false);
+            addMember(l, GetClass, false);
+            addMember(l, iter, false);
+            addMember(l, ToString, false);
+            addMember(l, As, false);
+            addMember(l, IsNull, false);
+            addMember(l, "out", get_out, null, false);
+
 			if (LuaDLL.luaL_dostring(l, classfunc) != 0)
 			{
-				throwLuaError(l);
+				lastError(l);
 				return;
 			}
-			LuaDLL.lua_setfield(l, -2, "Class");
-			LuaDLL.lua_pop(l, 1);
-		}
+			LuaDLL.lua_setfield(l, -3, "Class");
+
+
+            createTypeMetatable(l, null, typeof(Helper));
+        }
 	}
 }

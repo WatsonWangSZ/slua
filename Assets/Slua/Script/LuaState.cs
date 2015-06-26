@@ -103,7 +103,14 @@ namespace SLua
 		}
 	}
 
-	public class LuaDelegate : LuaFunction
+    public class LuaThread : LuaVar
+    {
+        public LuaThread(IntPtr l, int r)
+            : base(l, r)
+        { }
+    }
+
+    public class LuaDelegate : LuaFunction
 	{
 		public object d;
 
@@ -483,25 +490,30 @@ namespace SLua
 			if (main == null) main = this;
 
 			refQueue = new Queue<UnrefPair>();
+            ObjectCache.make(L);
 
-			LuaDLL.luaL_openlibs(L);
+            pcall(L, init);
+		}
 
-			ObjectCache.make(L);
+        [MonoPInvokeCallbackAttribute(typeof(LuaCSFunction))]
+        static int init(IntPtr L)
+        {
+            LuaDLL.luaL_openlibs(L);
 
-			LuaDLL.lua_pushlightuserdata(L, L);
-			LuaDLL.lua_setglobal(L, "__main_state");
+            LuaDLL.lua_pushlightuserdata(L, L);
+            LuaDLL.lua_setglobal(L, "__main_state");
 
-			LuaDLL.lua_pushcfunction(L, print);
-			LuaDLL.lua_setglobal(L, "print");
+            LuaDLL.lua_pushcfunction(L, print);
+            LuaDLL.lua_setglobal(L, "print");
 
-			LuaDLL.lua_pushcfunction(L, pcall);
-			LuaDLL.lua_setglobal(L, "pcall");
+            LuaDLL.lua_pushcfunction(L, pcall);
+            LuaDLL.lua_setglobal(L, "pcall");
 
-			LuaDLL.lua_pushcfunction(L, import);
-			LuaDLL.lua_setglobal(L, "import");
+            LuaDLL.lua_pushcfunction(L, import);
+            LuaDLL.lua_setglobal(L, "import");
 
 
-			string resumefunc = @"
+            string resumefunc = @"
 local resume = coroutine.resume
 local unpack = unpack or table.unpack
 coroutine.resume=function(co,...)
@@ -510,37 +522,38 @@ coroutine.resume=function(co,...)
 	return unpack(ret)
 end
 ";
-			// overload resume function for report error
-			if(LuaDLL.lua_dostring(L, resumefunc)!=0)
-				LuaObject.throwLuaError(L);
+            // overload resume function for report error
+            if (LuaDLL.lua_dostring(L, resumefunc) != 0)
+                LuaObject.lastError(L);
 
-			LuaDLL.lua_pushcfunction(L, dofile);
-			LuaDLL.lua_setglobal(L, "dofile");
+            LuaDLL.lua_pushcfunction(L, dofile);
+            LuaDLL.lua_setglobal(L, "dofile");
 
-			LuaDLL.lua_pushcfunction(L, loadfile);
-			LuaDLL.lua_setglobal(L, "loadfile");
+            LuaDLL.lua_pushcfunction(L, loadfile);
+            LuaDLL.lua_setglobal(L, "loadfile");
 
-			LuaDLL.lua_pushcfunction(L, loader);
-			int loaderFunc = LuaDLL.lua_gettop(L);
+            LuaDLL.lua_pushcfunction(L, loader);
+            int loaderFunc = LuaDLL.lua_gettop(L);
 
-			LuaDLL.lua_getglobal(L, "package");
+            LuaDLL.lua_getglobal(L, "package");
 #if LUA_5_3
 			LuaDLL.lua_getfield(L, -1, "searchers");
 #else
-			LuaDLL.lua_getfield(L, -1, "loaders");
+            LuaDLL.lua_getfield(L, -1, "loaders");
 #endif
-			int loaderTable = LuaDLL.lua_gettop(L);
+            int loaderTable = LuaDLL.lua_gettop(L);
 
-			// Shift table elements right
-			for (int e = LuaDLL.lua_rawlen(L, loaderTable) + 1; e > 1; e--)
-			{
-				LuaDLL.lua_rawgeti(L, loaderTable, e - 1);
-				LuaDLL.lua_rawseti(L, loaderTable, e);
-			}
-			LuaDLL.lua_pushvalue(L, loaderFunc);
-			LuaDLL.lua_rawseti(L, loaderTable, 1);
-			LuaDLL.lua_settop(L, 0);
-		}
+            // Shift table elements right
+            for (int e = LuaDLL.lua_rawlen(L, loaderTable) + 1; e > 1; e--)
+            {
+                LuaDLL.lua_rawgeti(L, loaderTable, e - 1);
+                LuaDLL.lua_rawseti(L, loaderTable, e);
+            }
+            LuaDLL.lua_pushvalue(L, loaderFunc);
+            LuaDLL.lua_rawseti(L, loaderTable, 1);
+            LuaDLL.lua_settop(L, 0);
+            return 0;
+        }
 
 		public void Close()
 		{
@@ -639,6 +652,17 @@ end
 			return LuaDLL.lua_gettop(L);  /* return status + all results */
 		}
 
+        internal static void pcall(IntPtr l,LuaCSFunction f)
+        {
+            int err = LuaObject.pushTry(l);
+            LuaDLL.lua_pushcfunction(l, f);
+            if(LuaDLL.lua_pcall(l, 0, 0, err)!=0)
+            {
+                LuaDLL.lua_pop(l, 1);
+            }
+            LuaDLL.lua_remove(l, err);
+        }
+
 		[MonoPInvokeCallbackAttribute(typeof(LuaCSFunction))]
 		internal static int print(IntPtr L)
 		{
@@ -732,11 +756,10 @@ end
 		public bool doBuffer(byte[] bytes, string fn, out object ret)
 		{
 			ret = null;
-			LuaDLL.lua_pushcfunction(L, errorFunc);
-			int errfunc = LuaDLL.lua_gettop(L);
+            int errfunc = LuaObject.pushTry(L);
 			if (LuaDLL.luaL_loadbuffer(L, bytes, bytes.Length, fn) == 0)
 			{
-				if (LuaDLL.lua_pcall(L, 0, LuaDLL.LUA_MULTRET, -2) != 0)
+				if (LuaDLL.lua_pcall(L, 0, LuaDLL.LUA_MULTRET, errfunc) != 0)
 				{
 					LuaDLL.lua_pop(L, 2);
 					return false;

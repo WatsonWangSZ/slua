@@ -249,11 +249,11 @@ IndexProperty:
 
 		}
 
-		static void newindexString(IntPtr l, object self, string key, object v)
+		static void newindexString(IntPtr l, object self, string key)
 		{
 			if (self is IDictionary)
 			{
-				(self as IDictionary)[key] = v;
+                (self as IDictionary)[key] = checkVar(l, 3);
 				return;
 			}
 
@@ -268,14 +268,20 @@ IndexProperty:
 			switch (mi.MemberType)
 			{
 				case MemberTypes.Property:
-					PropertyInfo p = (PropertyInfo)mi;
-					MethodInfo set = p.GetSetMethod();
-					set.Invoke(self, new object[] { v });
-					break;
+                    {
+                        PropertyInfo p = (PropertyInfo)mi;
+                        MethodInfo set = p.GetSetMethod();
+                        var value = checkVar(l, 3, p.PropertyType);
+                        set.Invoke(self, new object[] { value });
+                        break;
+                    }
 				case MemberTypes.Field:
-					FieldInfo f = (FieldInfo)mi;
-					f.SetValue(self, v);
-					break;
+                    {
+                        FieldInfo f = (FieldInfo)mi;
+                        var value = checkVar(l, 3, f.FieldType);
+                        f.SetValue(self, value);
+                        break;
+                    }
 				case MemberTypes.Method:
 					LuaDLL.luaL_error(l, "Method can't set");
 					break;
@@ -358,7 +364,7 @@ IndexProperty:
 			switch (t)
 			{
 				case LuaTypes.LUA_TSTRING:
-					newindexString(l, self, LuaDLL.lua_tostring(l, 2), checkVar(l, 3));
+					newindexString(l, self, LuaDLL.lua_tostring(l, 2));
 					return 0;
 				case LuaTypes.LUA_TNUMBER:
 					newindexInt(l, self, LuaDLL.lua_tointeger(l, 2));

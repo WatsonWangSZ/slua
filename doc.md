@@ -141,11 +141,10 @@ slua支持同名重载方法, 但对于自己实现的接口(非来自UnityEngin
 
 out参数是c#特有的语法,lua并不支持out参数,为此此slua采用多返回值来处理out参数,即所有out的参数都会变成一个返回值, 例如:
 >     -- get out parameter
-	local hitinfo = RaycastHit()
-	local ok,hitinfo = Physics.Raycast(Vector3(0,0,0),Vector3(0,0,1),hitinfo)
+	local ok,hitinfo = Physics.Raycast(Vector3(0,0,0),Vector3(0,0,1),Slua.out)
 	print("Physics Hitinfo",ok,hitinfo)
 
-hitinfo先传入Raycast函数,然后通过返回值返回.
+将Slua.out作为out参数传入Raycast函数,然后通过返回值返回.
 
 
 #####Type参数
@@ -364,6 +363,41 @@ c#中使用foreach语句遍历IEnumertable,例如List,Array等, 在slua中,可�
 	end
 
 返回的t是Canvas.transform的一级子对象.
+
+##判断GameObject是否为null
+
+因为Unity GameObject被destroy后，并不是真正的null，而是一个被标记了为destroyed的GameObject，而GameObject重载了==操作符，在c#中可以==判断是否为null（虽然它不是null），而这个gameobject被push到lua后，并不能判断==nil，所以slua提供IsNuall函数，用于判断是否GameObject被Destory，或者GetComponent的返回值其实不存在，也可以通过IsNull判断，例如：
+
+>     local go = GameObject()
+	local comp=go.GetComponent(SomeNotExistsComponent)
+	Slua.IsNull(comp) --true
+    GameObject.Destroy(go)
+    Slua.IsNull(go) -- true
+	
+	    
+
+
+##LuaConsole 调试控制台
+
+Slua从v0.82开始提供了一个lua控制台, 在该控制台内可以敲入一些调试指令, 用于快速和lua虚拟机交互,方便调试. 通过Slua->LuaConsole菜单可以打开lua控制台.
+
+控制台内上方为输出窗口,下方为命令输入窗口, 目前支持如下调试指令:
+
+1)任何有效的lua语句, 运行该lua语句, 如果语句有返回值,则输出返回值, 例如:
+
+a=1 --赋值_G['a']=1
+
+a --输出a的值为1
+
+b=2 --赋值_G['b']=2
+
+a,b --输出a,b的值
+
+UnityEngine --输出UnityEngine的内容
+
+for i=1,100 do UnityEngine.GameObject() end -- 创建100个GameObject
+
+2)cls 清屏 
 
 
 

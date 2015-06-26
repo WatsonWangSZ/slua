@@ -24,13 +24,11 @@
 namespace SLua
 {
 	using System;
-	using System.Collections;
 	using System.Collections.Generic;
 
 	using UnityEngine;
 	using LuaInterface;
 	using System.Reflection;
-	using System.Diagnostics;
 	using Debug = UnityEngine.Debug;
 
 	public class LuaSvr
@@ -46,24 +44,31 @@ namespace SLua
 
 		}
 
+        [MonoPInvokeCallbackAttribute(typeof(LuaCSFunction))]
+        static int init(IntPtr L)
+        {
+            LuaObject.init(L);
+            bindAll(L);
+            LuaTimer.reg(L);
+            LuaCoroutine.reg(L, lgo);
+            Helper.reg(L);
+            LuaValueType.reg(L);
+            SLuaDebug.reg(L);
+            LuaDLL.luaS_openextlibs(L);
+            return 0;
+        }
+
 		public LuaSvr(string main)
 		{
 			luaState = new LuaState();
 
-			LuaObject.init(luaState.L);
-			bindAll(luaState.L);
+            GameObject go = new GameObject("LuaSvrProxy");
+            lgo = go.AddComponent<LuaSvrGameObject>();
+            GameObject.DontDestroyOnLoad(go);
+            lgo.state = luaState;
+            lgo.onUpdate = this.tick;
 
-			GameObject go = new GameObject("LuaSvrProxy");
-			lgo = go.AddComponent<LuaSvrGameObject>();
-			GameObject.DontDestroyOnLoad(go);
-			lgo.state = luaState;
-			lgo.onUpdate = this.tick;
-
-			LuaTimer.reg(luaState.L);
-			LuaCoroutine.reg(luaState.L, lgo);
-			Helper.reg(luaState.L);
-            LuaValueType.reg(luaState.L);
-            LuaDLL.luaS_openextlibs(luaState.L);
+            LuaState.pcall(luaState.L, init);
 
             start(main);
 
@@ -99,9 +104,15 @@ namespace SLua
 		}
 
 
-		void bindAll(IntPtr l)
+		static void bindAll(IntPtr l)
 		{
-			Assembly[] ams = AppDomain.CurrentDomain.GetAssemblies();
+#if UNITY_IOS || UNITY_ANDROID
+            BindUnity.Bind(l);
+            BindUnityUI.Bind(l); // delete this line if not found
+            BindDll.Bind(l); // delete this line if not found
+            BindCustom.Bind(l); 
+#else
+            Assembly[] ams = AppDomain.CurrentDomain.GetAssemblies();
 
 			List<Type> bindlist = new List<Type>();
 			foreach(Assembly a in ams) 
@@ -129,6 +140,7 @@ namespace SLua
 			{
 				t.GetMethod("Bind").Invoke(null, new object[] { l });
 			}
-		}
+#endif
+        }
 	}
 }

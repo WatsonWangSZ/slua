@@ -132,13 +132,26 @@ do
 		res[3] = m[3] * v[1] + m[6] * v[2] + m[9] * v[3]
 		return res
 	end
+
+	function Matrix3x3:SetIdentity()
+		self[1],self[2],self[3]=1,0,0
+		self[4],self[5],self[6]=0,1,0
+		self[7],self[8],self[9]=0,0,1
+	end
+
+	function Matrix3x3:SetOrthoNormal( x,y,z )
+		self[1],self[2],self[3]=x[1],y[1],z[1]
+		self[4],self[5],self[6]=x[2],y[2],z[2]
+		self[7],self[8],self[9]=x[3],y[3],z[3]
+	end
 end
 
 do
 	local Raw=UnityEngine.Vector3
 	local Vector3={__typename='Vector3',__raw=Raw}
 	local T=Vector3
-	_G['UnityEngine.Vector3.Instance']=Vector3
+	local I={__typename='Vector3'}
+	_G['UnityEngine.Vector3.Instance']=I
 	UnityEngine.Vector3=Vector3
 	local get={}
 	local set={}
@@ -159,43 +172,57 @@ do
 
 
 	Vector3.New=function (x,y,z)
-		local v={x,y,z}
-		return setmetatable(v,Vector3)
+		local v={x or 0,y or 0,z or 0}
+		return setmetatable(v,I)
 	end
 
 	Vector3.__call = function(t,x,y,z)
 		return Vector3.New(x,y,z)
 	end
 
-	Vector3.__eq = function(a,b)
+	I.__index = function(t,k)
+		local f=rawget(I,k)
+		if f then return f end
+		local f=rawget(get,k)
+		if f then return f(t) end
+		error('Not found '..k)
+	end
+
+	I.__newindex = function(t,k,v)
+		local f=rawget(set,k)
+		if f then return f(t,v) end
+		error('Not found '..k)
+	end
+
+	I.__eq = function(a,b)
 		return abs(a[1]-b[1])<Epsilon
 		 	and abs(a[2]-b[2])<Epsilon
 		 	and abs(a[3]-b[3])<Epsilon
 	end
 
-	Vector3.__unm = function(a)
+	I.__unm = function(a)
 		local ca=Vector3.New(-a[1],-a[2],-a[3])
 		return ca
 	end
 
 
-	Vector3.__tostring = function(self)
+	I.__tostring = function(self)
 		return string.format('Vector3(%f,%f,%f)',self[1],self[2],self[3])
 	end
 
-	Vector3.__mul = function(a,b)
+	I.__mul = function(a,b)
 		return Vector3.New(a[1]*b,a[2]*b,a[3]*b)
 	end
 
-	Vector3.__add = function(a,b)
+	I.__add = function(a,b)
 		return Vector3.New(a[1]+b[1],a[2]+b[2],a[3]+b[3])
 	end
 
-	Vector3.__sub = function(a,b)
+	I.__sub = function(a,b)
 		return Vector3.New(a[1]-b[1],a[2]-b[2],a[3]-b[3])
 	end
 
-	Vector3.__div = function(a,b)
+	I.__div = function(a,b)
 		return Vector3.New(a[1]/b,a[2]/b,a[3]/b)
 	end
 
@@ -234,9 +261,7 @@ do
 	function get:magnitude() return Vector3.Magnitude(self) end
 	function get:sqrMagnitude() return Vector3.SqrMagnitude(self) end
 	function get:normalized() 
-		local cv=self:Clone()
-		Vector3.Normalize(cv)
-		return cv
+		return Vector3.Normalize(self)
 	end
 
 
@@ -244,11 +269,11 @@ do
 		return Vector3.New(self[1],self[2],self[3])
 	end
 		
-	function Vector3:Set(x,y,z)	
+	function I:Set(x,y,z)	
 		self[1],self[2],self[3]=x or 0,y or 0,z or 0
 	end
 
-	function Vector3:ToString()
+	function I:ToString()
 		return self:__tostring()
 	end
 
@@ -257,7 +282,7 @@ do
 		return acos()*ToAngle
 	end
 
-	function Vector3.Normalize(v)
+	function Vector3.Normalized(v)
 		local m = Vector3.Magnitude(v)
 		if m==1 then
 			return v
@@ -266,6 +291,16 @@ do
 		else
 			v:Set(0,0,0)
 		end
+	end
+
+    function Vector3.Normalize(v)
+        local v=Vector3.Clone(v)
+        Vector3.Normalized(v)
+        return v
+	end
+
+	function I:Normalize()
+		Vector3.Normalized(self)
 	end
 
 	function Vector3.Magnitude(v)
@@ -315,7 +350,7 @@ do
 			return Vector3.Lerp(a,b,t)
 		elseif dot<-1+Epsilon then
 			local lerpedMagnitude = lerpf (ma, mb, t)
-			local na = Vector3.__div(a,ma)
+			local na = I.__div(a,ma)
 			local axis = Vector3.OrthoNormalVector(na)
 			local m=Matrix3x3.New()
 			Matrix3x3.SetAxisAngle(m,axis,PI*t)
@@ -326,7 +361,7 @@ do
 			local lerpedMagnitude = lerpf (ma, mb, t)
 			local axis = Vector3.Cross(a,b)
 			local na = a/ma
-			Vector3.Normalize(axis)
+			Vector3.Normalized(axis)
 			local angle=acos(dot)*t
 			local m=Matrix3x3.New()
 			Matrix3x3.SetAxisAngle(m,axis,angle)
@@ -356,7 +391,7 @@ do
 	end
 
 	function Vector3.MoveTowards(a,b,adv)
-		local v = Vector3.__sub(b,a)
+		local v = I.__sub(b,a)
 		local m = Vector3.Magnitude(v)
 		if m>adv and m~=0 then
 			Vector3.Div(v,m)
@@ -397,7 +432,7 @@ do
 			else
 				local angle = acos(dot);
 				local axis = Vector3.Cross(na, nb)
-				Vector3.Normalize(axis)
+				Vector3.Normalized(axis)
 				local m=Matrix3x3.New()
 				Matrix3x3.SetAxisAngle(m,axis, min(angleMove, angle))
 				local rotated = Matrix3x3.Mul(m,na)
@@ -416,27 +451,31 @@ do
 	end
 
 	function Vector3.OrthoNormalize(u,v,w)
-		Vector3.Normalize(u)
+		Vector3.Normalized(u)
 
 		local dot0 = Vector3.Dot(u,v)
 		local tu=Vector3.Clone(u)
 		Vector3.Mul(tu,dot0)
 		Vector3.Sub(v,tu)
-		Vector3.Normalize(v)
+		Vector3.Normalized(v)
 
 		if w then
 			local dot1 = Vector3.Dot(v,w)
 			local dot0 = Vector3.Dot(u,w)
-			local tw=Vector3.__mul(u,dot0)
-			local tv=Vector3.__mul(v,dot1)
+			local tw=I.__mul(u,dot0)
+			local tv=I.__mul(v,dot1)
 			Vector3.Add(tv,tw)
 			Vector3.Sub(w,tv)
-			Vector3.Normalize(w)
+			Vector3.Normalized(w)
 		end
 	end
 
 	function Vector3.Scale(a,b)
 		return Vector3.New(a[1]*b[1],a[2]*b[2],a[3]*b[3])
+	end
+
+	function I:Scale( self,b )
+		return Vector3.Scale(self,b)
 	end
 
 	-- code copy from reflactor of UnityEgnine
@@ -473,7 +512,7 @@ do
 
 	function Vector3.Reflect(dir,nml)
 		local dot=Vector3.Dot(nml,dir)*-2
-		local v=Vector3.__mul(nml,dot)
+		local v=I.__mul(nml,dot)
 		Vector3.Add(v,dir)
 		return v
 	end
@@ -526,7 +565,7 @@ do
 
 	function Color.New(r,g,b,a)
 		a=a or 1
-		local c={r,g,b,a}
+		local c={r or 0,g or 0,b or 0,a or 0}
 		return setmetatable(c,Color)
 	end
 
@@ -646,7 +685,7 @@ do
 	end
 
 	function Vector2.New(x,y)
-		return setmetatable({x,y},Vector2)
+		return setmetatable({x or 0,y or 0},Vector2)
 	end
 
 	function Vector2.__call(t,x,y)
@@ -738,7 +777,7 @@ do
 	end
 
 	function Vector4.New(x,y,z,w)
-		return setmetatable({x,y,z,w},Vector4)
+		return setmetatable({x or 0,y or 0,z or 0,w or 0},Vector4)
 	end
 
 	function Vector4.__call(t,x,y,z,w)
@@ -879,7 +918,7 @@ do
 
 
 	function Quaternion.New(x,y,z,w)
-		return setmetatable({x,y,z,w},Quaternion)
+		return setmetatable({x or 0,y or 0,z or 0,w or 0},Quaternion)
 	end
 
 	function Quaternion.__call(t,x,y,z,w)
@@ -904,10 +943,13 @@ do
 		return Quaternion.New(self[1],self[2],self[3],self[4])
 	end
 
-	--TODO
 	function Quaternion:ToAngleAxis()
-		local angel,axis = Inst.ToAngleAxis(self)
-		return angel,axis
+		local angle = acos(self[4])*2
+		if abs(angle-0)<Epsilon then
+			return angle,Vector3.New(1,0,0)
+		end
+		local div = 1/sqrt(1-self[4]^2)
+		return angle,Vector3.New(self[1]*div,self[2]*div,self[3]*div)
 	end
 
 	--TODO
@@ -947,6 +989,7 @@ do
 
 	-- code from reflector unityengine
 	function Quaternion.Dot( a,b )
+		print(a,b)
 		return a[1] * b[1] + a[2] * b[2] + a[3] * b[3] + a[4] * b[4]
 	end
 
@@ -1013,7 +1056,7 @@ end
             // lua implemented valuetype isn't faster than raw under non-jit.
             if (LuaDLL.luaL_dostring(l, script) != 0)
             {
-                throwLuaError(l);
+                lastError(l);
                 return;
             }
 #endif

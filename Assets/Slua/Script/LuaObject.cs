@@ -66,6 +66,8 @@ namespace SLua
 		}
 	}
 
+    public class LuaOut { }
+
 	public partial class LuaObject
 	{
 
@@ -144,14 +146,14 @@ return index
 
 			if (LuaDLL.luaL_dostring(l, newindexfun) != 0)
 			{
-				throwLuaError(l);
+				lastError(l);
 				return;
 			}
 			newindex_ref = LuaDLL.luaL_ref(l, LuaIndexes.LUA_REGISTRYINDEX);
 
 			if (LuaDLL.luaL_dostring(l, indexfun) != 0)
 			{
-				throwLuaError(l);
+                lastError(l);
 				return;
 			}
 			index_ref = LuaDLL.luaL_ref(l, LuaIndexes.LUA_REGISTRYINDEX);
@@ -278,7 +280,8 @@ return index
 
 			typePushMap[typeof(LuaTable)] =
 				typePushMap[typeof(LuaFunction)] =
-				(IntPtr L, object o) =>
+                typePushMap[typeof(LuaThread)] =
+                (IntPtr L, object o) =>
 				{
 					((LuaVar)o).push(L);
 				};
@@ -460,8 +463,20 @@ return index
 			createTypeMetatable(l, con, self, null);
 		}
 
+        static void checkMethodValid(LuaCSFunction f)
+        {
+#if UNITY_EDITOR
+            if (f != null && !Attribute.IsDefined(f.Method, typeof(MonoPInvokeCallbackAttribute)))
+            {
+                Debug.LogError(string.Format("MonoPInvokeCallbackAttribute not defined for LuaCSFunction {0}.", f.Method));
+            }
+#endif
+        }
+
 		public static void createTypeMetatable(IntPtr l, LuaCSFunction con, Type self, Type parent)
 		{
+            checkMethodValid(con);
+
 			// set parent
 			if (parent != null && parent != typeof(object) && parent != typeof(ValueType))
 			{
@@ -556,7 +571,9 @@ return index
 
 		public static void reg(IntPtr l, LuaCSFunction func, string ns)
 		{
-			newTypeTable(l, ns);
+            checkMethodValid(func);
+
+            newTypeTable(l, ns);
 			LuaDLL.lua_pushcfunction(l, func);
 			LuaDLL.lua_setfield(l, -2, func.Method.Name);
 			LuaDLL.lua_pop(l, 1);
@@ -564,7 +581,9 @@ return index
 
 		protected static void addMember(IntPtr l, LuaCSFunction func)
 		{
-			LuaDLL.lua_pushcfunction(l, func);
+            checkMethodValid(func);
+
+            LuaDLL.lua_pushcfunction(l, func);
 			string name = func.Method.Name;
 			if (name.EndsWith("_s"))
 			{
@@ -577,14 +596,19 @@ return index
 
 		protected static void addMember(IntPtr l, LuaCSFunction func, bool instance)
 		{
-			LuaDLL.lua_pushcfunction(l, func);
+            checkMethodValid(func);
+
+            LuaDLL.lua_pushcfunction(l, func);
 			string name = func.Method.Name;
 			LuaDLL.lua_setfield(l, instance ? -2 : -3, name);
 		}
 
 		protected static void addMember(IntPtr l, string name, LuaCSFunction get, LuaCSFunction set, bool instance)
 		{
-			int t = instance ? -2 : -3;
+            checkMethodValid(get);
+            checkMethodValid(set);
+
+            int t = instance ? -2 : -3;
 
 			LuaDLL.lua_newtable(l);
 			if (get == null)
@@ -608,13 +632,11 @@ return index
 			LuaDLL.lua_setfield(l, -2, name);
 		}
 
-		public static void throwLuaError(IntPtr l)
-		{
-			string err = LuaDLL.lua_tostring(l, -1);
-			LuaDLL.lua_pop(l, 1);
-
-			throw new InvalidProgramException(err);
-		}
+        internal static void lastError(IntPtr l)
+        {
+            string err = LuaDLL.lua_tostring(l, -1);
+            LuaDLL.luaL_error(l, err);
+        }
 
 		[MonoPInvokeCallbackAttribute(typeof(LuaCSFunction))]
 		static public int luaGC(IntPtr l)
@@ -706,6 +728,8 @@ return index
 					}
 				case LuaTypes.LUA_TFUNCTION:
 					return t == typeof(LuaFunction) || t.BaseType == typeof(MulticastDelegate);
+                case LuaTypes.LUA_TTHREAD:
+                    return t == typeof(LuaThread);
                     
 			}
 			return false;
@@ -964,7 +988,16 @@ return index
 			LuaDLL.lua_pop(l, 1); // pop __LuaDelegate
 		}
 
-		static public bool checkType(IntPtr l, int p, out LuaFunction f)
+        static public bool checkType(IntPtr l, int p, out LuaThread lt)
+        {
+            LuaDLL.luaL_checktype(l, p, LuaTypes.LUA_TTHREAD);
+            LuaDLL.lua_pushvalue(l, p);
+            int fref = LuaDLL.luaL_ref(l, LuaIndexes.LUA_REGISTRYINDEX);
+            lt = new LuaThread(l, fref);
+            return true;
+        }
+
+        static public bool checkType(IntPtr l, int p, out LuaFunction f)
 		{
 			LuaDLL.luaL_checktype(l, p, LuaTypes.LUA_TFUNCTION);
 			LuaDLL.lua_pushvalue(l, p);
@@ -1021,7 +1054,7 @@ return index
 				LuaDLL.luaL_error(l, "expect string or type table");
 
 			t = Type.GetType(tname);
-            if (t != null)
+            if (t != null && lt==LuaTypes.LUA_TTABLE)
             {
                 LuaDLL.lua_pushstring(l, "__type");
                 pushObject(l, t);
@@ -1191,6 +1224,19 @@ return index
 			return true;
 		}
 
+        static public object checkVar(IntPtr l, int p, Type t)
+        {
+            object obj = checkVar(l, p);
+            try
+            {
+                return Convert.ChangeType(obj, t);
+            }
+            catch(Exception) { 
+                LuaDLL.luaL_error(l, "parameter {0} expected {1}, got {2}", p, t.Name, obj==null?"null":obj.GetType().Name);
+            }
+            return null;
+        }
+
 		static public object checkVar(IntPtr l, int p)
 		{
 			LuaTypes type = LuaDLL.lua_type(l, p);
@@ -1264,6 +1310,12 @@ return index
 					}
 				case LuaTypes.LUA_TUSERDATA:
 					return LuaObject.checkObj(l, p);
+                case LuaTypes.LUA_TTHREAD:
+                    {
+                        LuaThread lt;
+                        LuaObject.checkType(l, p, out lt);
+                        return lt;
+                    }
 				default:
 					return null;
 			}
