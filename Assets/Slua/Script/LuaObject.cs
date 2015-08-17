@@ -830,9 +830,21 @@ return index
 
 
 
+		static public bool checkType(IntPtr l, int p, out IntPtr v)
+		{
+			v = LuaDLL.lua_touserdata(l, p);
+			return true;
+		}
+
 		static public bool checkType(IntPtr l, int p, out float v)
 		{
 			v = (float)LuaDLL.luaL_checknumber(l, p);
+			return true;
+		}
+
+		static public bool checkType(IntPtr l, int p, out double v)
+		{
+			v = LuaDLL.luaL_checknumber(l, p);
 			return true;
 		}
 
@@ -932,6 +944,18 @@ return index
 		{
 			LuaDLL.luaL_checktype(l, p, LuaTypes.LUA_TBOOLEAN);
 			v = LuaDLL.lua_toboolean(l, p);
+			return true;
+		}
+
+		static public bool checkType(IntPtr l, int p,out char c)
+		{
+			c = (char)LuaDLL.luaL_checkinteger(l, p);
+			return true;
+		}
+
+		static public bool checkValueType<T>(IntPtr l, int p, out T v) where T:struct
+		{
+			v = (T) checkObj(l, p);
 			return true;
 		}
 
@@ -1064,29 +1088,24 @@ return index
 		}
 
 
-		static public bool checkType<T>(IntPtr l, int p, out T o)
+		static public bool checkType<T>(IntPtr l, int p, out T o) where T:class
 		{
-			o = (T)checkVar(l, p);
+			object obj = checkVar(l, p);
+			if (obj == null)
+			{
+				o = null;
+				return true;
+			}
+
+			o = obj as T;
+			if (o == null)
+				LuaDLL.luaL_error(l, "arg {0} is not type of {1}", p, typeof(T).Name);
+
 			return true;
 		}
 
 		static public object checkObj(IntPtr l, int p)
 		{
-			if (LuaDLL.lua_istable(l, p))
-			{
-				LuaDLL.lua_pushvalue(l, p);
-				while (LuaDLL.lua_istable(l, -1))
-				{
-					LuaDLL.lua_pushstring(l, "__base");
-					LuaDLL.lua_rawget(l, -2);
-					LuaDLL.lua_remove(l, -2);
-				}
-				if (LuaDLL.lua_isuserdata(l, -1) > 0)
-					LuaDLL.lua_replace(l, p);
-				else
-					LuaDLL.luaL_error(l, "arg {0} expect object, but get a table",p);
-			}
-
 			ObjectCache oc = ObjectCache.get(l);
 			return oc.get(l, p);
 		}
@@ -1149,7 +1168,7 @@ return index
 			return true;
 		}
 
-		static public bool checkParams<T>(IntPtr l, int p, out T[] pars)
+		static public bool checkParams<T>(IntPtr l, int p, out T[] pars) where T:class
 		{
 			int top = LuaDLL.lua_gettop(l);
 			if (top - p >= 0)
@@ -1158,6 +1177,22 @@ return index
 				for (int n = p, k = 0; n <= top; n++, k++)
 				{
 					checkType(l, n, out pars[k]);
+				}
+				return true;
+			}
+			pars = new T[0];
+			return true;
+		}
+
+		static public bool checkValueParams<T>(IntPtr l, int p, out T[] pars) where T : struct
+		{
+			int top = LuaDLL.lua_gettop(l);
+			if (top - p >= 0)
+			{
+				pars = new T[top - p + 1];
+				for (int n = p, k = 0; n <= top; n++, k++)
+				{
+					checkValueType(l, n, out pars[k]);
 				}
 				return true;
 			}
@@ -1536,10 +1571,17 @@ return index
 		public static object checkSelf(IntPtr l)
 		{
 			object o = checkObj(l, 1);
-			if (o != null)
-				return o;
-			LuaDLL.luaL_error(l, "expect self, but get null");
-			return null;
+			if (o == null)
+				LuaDLL.luaL_error(l, "expect self, but get null");
+			return o;
+		}
+
+		public static UnityEngine.Object checkUOSelf(IntPtr l)
+		{
+			UnityEngine.Object o = (UnityEngine.Object) checkObj(l, 1);
+			if(o==null)
+				LuaDLL.luaL_error(l, "expect self, but get null");
+			return o;
 		}
 
 		public static void setBack(IntPtr l, object o)

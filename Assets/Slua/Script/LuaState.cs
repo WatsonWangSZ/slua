@@ -148,7 +148,7 @@ namespace SLua
 		{
 		}
 
-		public bool call(int nArgs, int errfunc)
+		internal bool pcall(int nArgs, int errfunc)
 		{
 
 			if (!state.isMainThread())
@@ -176,7 +176,7 @@ namespace SLua
 
 		bool innerCall(int nArgs, int errfunc)
 		{
-			bool ret = call(nArgs, errfunc);
+			bool ret = pcall(nArgs, errfunc);
 			LuaDLL.lua_remove(L, errfunc);
 			return ret;
 		}
@@ -521,11 +521,19 @@ coroutine.resume=function(co,...)
 	if not ret[1] then UnityEngine.Debug.LogError(debug.traceback(co,ret[2])) end
 	return unpack(ret)
 end
-";
-            // overload resume function for report error
-            if (LuaDLL.lua_dostring(L, resumefunc) != 0)
-                LuaObject.lastError(L);
 
+coroutine.wrap = function(func)
+	local co = coroutine.create(func)
+	return function(...)
+		local ret={coroutine.resume(co,...)}
+		return unpack(ret, 2)
+	end
+end
+";
+
+			// overload resume function for report error
+			LuaState.get(L).doString(resumefunc);
+            
             LuaDLL.lua_pushcfunction(L, dofile);
             LuaDLL.lua_setglobal(L, "dofile");
 
@@ -708,6 +716,17 @@ end
 			}
 			return 0;
 		}
+
+		public object doString(string str)
+		{
+			byte[] bytes = Encoding.UTF8.GetBytes(str);
+			
+			object obj;
+			if (doBuffer(bytes, "temp buffer", out obj))
+				return obj;
+			return null; ;
+			
+		}
 		
 		[MonoPInvokeCallbackAttribute(typeof(LuaCSFunction))]
 		internal static int loader(IntPtr L)
@@ -725,17 +744,6 @@ end
 				}
 			}
 			return 0;
-		}
-
-		public object doString(string str)
-		{
-			byte[] bytes = Encoding.UTF8.GetBytes(str);
-
-			object obj;
-			if (doBuffer(bytes, "temp buffer", out obj))
-				return obj;
-			return null; ;
-
 		}
 
 		public object doFile(string fn)

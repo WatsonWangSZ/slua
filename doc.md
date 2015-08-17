@@ -4,7 +4,9 @@ slua是Unity3D导出为lua的自动化代码生成工具, 通过产生静态的�
 
 ##安装
 
-通过git clone复制一份代码到你的资源目录(Assets目录内),  点击slua菜单中 Make UnityEngine 命令 手动生成针对当前版本的U3d接口文件, 如果你运行例子代码产生错误,记得要make ui,make custom,保证例子中使用到的接口都被导出了.
+下载最新版，[这里](https://github.com/pangweiwei/slua/releases/latest), 解压缩，将Assets目录里的所有内容复制到你的工程中，对于最终产品，可以删除slua_src，例子，文档等内容，如果是开发阶段则无所谓。
+
+等待unity编译完毕，如果一切顺利的话，将出现slua菜单， 点击slua菜单中 All->Make 命令 手动生成针对当前版本的U3d接口文件。
 
 ***每次更新slua版本，务必记得clear all，然后make all，否则可能运行不正确***
 
@@ -14,10 +16,10 @@ slua是Unity3D导出为lua的自动化代码生成工具, 通过产生静态的�
 
 ###自动导出
 
-slua会自动导出UnityEngine的大部分接口, 导出UnityEngine.UI( 需要Unity3d 4.6+ )的全部接口(不需要可以删除) 这只需要通过点击Slua 菜单Make 和 Make UI命令,就会自动产生对应的接口文件, 你可能会发现一些UnityEngine的接口并没有导出, 被忽略的接口主要是平台相关,或者极少没用到的接口, 如果这些接口你也需要导出, 请手动修改代码 LuaCodeGen.cs 文件 的noUseList列表, 这个列表写明了那些接口不需要导出, 考虑到实际游戏开发过程中可能不需要用到那么多接口, 在实际发布的游戏中, 可以仅保留需要的接口, 这样生成的代码会更小. 
+slua会自动导出UnityEngine的大部分接口, 导出UnityEngine.UI( 需要Unity3d 4.6+ )的全部接口(不需要可以删除) 这只需要通过点击Slua 菜单Make 和 Make UI命令,就会自动产生对应的接口文件, 你可能会发现一些UnityEngine的接口并没有导出, 被忽略的接口主要是平台相关,或者极少没用到的接口, 如果这些接口你也需要导出, 请手动修改代码 CustomExport.cs 文件 的 OnGetNoUseList 函数， 反悔 noUseList列表, 这个列表写明了那些接口不需要导出, 考虑到实际游戏开发过程中可能不需要用到那么多接口, 在实际发布的游戏中, 可以仅保留需要的接口, 这样生成的代码会更小. 
 
 
-同时有部分接口可能在移动平台上不存在, 这导致在发布移动平台的时候报告找不到接口的错误, 所以默认slua已经将4.6.1中遇到的这部分接口也屏蔽了, 在未来的版本中可能遇到更多类似接口, 你仅需要将对应的接口加入 memberFilter 列表, 重新Make即可(注意重新Make时需要保证没有编译错误, 可以用Clear All删除全部导出文件), 例如:  
+同时有部分接口可能在移动平台上不存在, 这导致在发布移动平台的时候报告找不到接口的错误, 所以默认slua已经将4.6.1中遇到的这部分接口也屏蔽了, 在未来的版本中可能遇到更多类似接口, 你仅需要将对应的接口加入 memberFilter 列表（在LuaCodeGen.cs文件，未来可能移动到CustomExport文件内）, 重新Make即可(注意重新Make时需要保证没有编译错误, 可以用Clear All删除全部导出文件), 例如:  
 >     static List<string> memberFilter = new List<string>
     {
         "AnimationClip.averageDuration",
@@ -159,48 +161,6 @@ out参数是c#特有的语法,lua并不支持out参数,为此此slua采用多返
         Debug.Log(t.Name);
     }
     
-再比如
-
->    gameObject:AddComponent(UnityEngine.UI.Lay
->    
->    
->    
->    
->    
->    
->    
->    
->    
->    
->    
->    
->    
->    
->    
->    
->    
->    
->    
->    
->    
->    
->    
->    
->    
->    
->    
->    
->    
->    
->    
->    
->    
->    
->    
->    
->    
->    
->    Element)
 
 从Unity5开始AddComponent不再支持字符串作为类型参数, 可以使用上面的方面传递类型.
 
@@ -208,7 +168,20 @@ out参数是c#特有的语法,lua并不支持out参数,为此此slua采用多返
 
 >     HelloWorld.ofunc("UnityEngine.GameObject,UnityEngine")
 
+
+当作Type传入的string需要符合c#的描述规则，请参考Type.GetType方法的帮助，获得如何通过字符串描述type。
+
 但目前采用同Type做为参数的方法如果存在重载方法, 则可能工作不正常, 建议避免使用同名重载.
+
+
+####类型转换
+
+正常使用情况，一般不会在lua层面做类型转换，因为所有的对象到了lua里都是userdata，在c#层面维护了一张表保存每个userdata的类型，在少数情况下需要downcast为子类的时候，需要在lua层面转换c#的数据类型，可以使用As方法，例如：
+
+>     local v = CreateBase() -- 返回BaseObject
+    local x = Slua.As(v,Child) -- Child继承自Base
+
+这样将会把userdata v的metatable ChildObject，这意味着你可以在lua层面调用ChildObject的方法。
 
 
 ####代理(delegate)
@@ -473,6 +446,8 @@ for i=1,100 do UnityEngine.GameObject() end -- 创建100个GameObject
 
 这样便在src目录生成了libluajit.a库文件, 修改文件为libslua.a, 放入Assets/Plugins/iOS 目录即可.
 
+注意上面的脚本仅仅生成了arm64的lib，对于最终用于生成环境的lib，还需要lipo把各个架构的lib合并，这里不详细展开，具体请参考build脚本。
+
 ##常见问题
 
 1) “我用luajit编译的dll可以使用，但是我用lua5.3编译的dll会导致unity闪退，怎么办”
@@ -519,6 +494,19 @@ iOS对dll的尺寸有大小限制, 出现这个错误可能是你的工程代码
 11) slua支持protobuf/json/sqlite吗?
 
 slua仅专注解决lua和c#绑定的问题, 保证这部分功能足够内敛精简, 任何第三方lua库都可以用, 但这需要你自己编译进入slua库里, 不要问我如何编译他们, 当你打算使用这些库时, 一般情况你应该懂得如何编译他们了.
+
+12) slua能不能读取luajit编译过的lua文件呢？
+
+可以，但需要针对性的编译对应平台的bytecode，不同平台不兼容.
+
+slua 不同平台采用的luajit版本也不相同，主要在不同平台间选择最适合的版本(建议在目标平台上编译，比如发布iOS版，就需要iOS的luajit来编译），列表如下：
+
+win/android 平台 luajit 2.0.4 32bit
+
+iOS luajit 2.1 universal
+
+mac lua 5.1.5 （不采用jit的原因是，luajit 64bit嵌入的兼容性问题导致不支持unity5)
+
 
 
 ##已知问题

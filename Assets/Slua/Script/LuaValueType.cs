@@ -935,6 +935,9 @@ do
 	function set:z(v) self[3]=v	end
 	function set:w(v) self[4]=v	end
 
+	function get:eulerAngles() return Inst.eulerAngles[1](self) end
+	function set:eulerAngles(v) Inst.eulerAngles[2](self,v) end
+
 	function Quaternion:Set(x,y,z,w)
 		self[1],self[2],self[3],self[4]=x,y,z,w
 	end
@@ -989,7 +992,6 @@ do
 
 	-- code from reflector unityengine
 	function Quaternion.Dot( a,b )
-		print(a,b)
 		return a[1] * b[1] + a[2] * b[2] + a[3] * b[3] + a[4] * b[4]
 	end
 

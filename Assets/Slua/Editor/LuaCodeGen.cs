@@ -544,7 +544,7 @@ namespace SLua
 					Write(file, "pushValue(l,a{0});", n + 1);
 			}
 			
-			Write(file, "ld.call({0}, error);", mi.GetParameters().Length - outindex.Count);
+			Write(file, "ld.pcall({0}, error);", mi.GetParameters().Length - outindex.Count);
 			
 			if (mi.ReturnType != typeof(void))
 				WriteValueCheck(file, mi.ReturnType, 1, "ret", "error+");
@@ -703,7 +703,7 @@ namespace SLua
             {
                 int error = pushTry(l);
                 pushValue(l, v);
-                ld.call(1, error);
+                ld.pcall(1, error);
                 LuaDLL.lua_settop(l,error - 1);
             };
             ld.d = ua;
@@ -723,7 +723,7 @@ namespace SLua
 		{
 			// Write export function
 			Write(file, "static public void reg(IntPtr l) {");
-			Write(file, "getEnumTable(l,\"{0}\");", FullName(t));
+			Write(file, "getEnumTable(l,\"{0}\");", string.IsNullOrEmpty(givenNamespace) ? FullName(t) : givenNamespace);
 			
 			FieldInfo[] fields = t.GetFields();
 			foreach (FieldInfo f in fields)
@@ -837,7 +837,7 @@ namespace SLua
 				Write(file, "LuaUnityEvent_{1}.reg(l);", FullName(t), _Name((GenericName(t.BaseType))));
 			}
 			
-			Write(file, "getTypeTable(l,\"{0}\");", givenNamespace != null ? givenNamespace : FullName(t));
+			Write(file, "getTypeTable(l,\"{0}\");", string.IsNullOrEmpty(givenNamespace) ? FullName(t) : givenNamespace);
 			foreach (string f in funcname)
 			{
 				Write(file, "addMember(l,{0});", f);
@@ -1016,7 +1016,7 @@ namespace SLua
 						if (fi.GetGetMethod().IsStatic)
 						{
 							isInstance = false;
-							WritePushValue(fi.PropertyType, file, string.Format("{0}.{1}", t.FullName, fi.Name));
+							WritePushValue(fi.PropertyType, file, string.Format("{0}.{1}", TypeDecl(t), fi.Name));
 						}
 						else
 						{
@@ -1040,14 +1040,14 @@ namespace SLua
 					if (fi.GetSetMethod().IsStatic)
 					{
 						WriteValueCheck(file, fi.PropertyType, 2);
-						WriteSet(file, fi.PropertyType, t.FullName, fi.Name, true);
+						WriteSet(file, fi.PropertyType, TypeDecl(t), fi.Name, true);
 						isInstance = false;
 					}
 					else
 					{
 						WriteCheckSelf(file, t);
 						WriteValueCheck(file, fi.PropertyType, 2);
-						WriteSet(file, fi.PropertyType, t.FullName, fi.Name);
+						WriteSet(file, fi.PropertyType, TypeDecl(t), fi.Name);
 					}
 					
 					if (t.IsValueType)
@@ -1155,16 +1155,20 @@ namespace SLua
 		
 		void WriteTry(StreamWriter file)
 		{
+#if _LUADEBUG
 			Write(file, "try {");
+#endif
 		}
 		
 		void WriteCatchExecption(StreamWriter file)
 		{
+#if _LUADEBUG
 			Write(file, "}");
 			Write(file, "catch(Exception e) {");
 			Write(file, "LuaDLL.luaL_error(l, e.ToString());");
 			Write(file, "return 0;");
 			Write(file, "}");
+#endif
 		}
 		
 		void WriteCheckType(StreamWriter file, Type t, int n, string v = "v", string nprefix = "")
@@ -1173,6 +1177,8 @@ namespace SLua
 				Write(file, "checkEnum(l,{2}{0},out {1});", n, v, nprefix);
 			else if (t.BaseType == typeof(System.MulticastDelegate))
 				Write(file, "int op=LuaDelegation.checkDelegate(l,{2}{0},out {1});", n, v, nprefix);
+			else if (t.IsValueType && !IsBaseType(t))
+				Write(file, "checkValueType(l,{2}{0},out {1});", n, v, nprefix);
 			else
 				Write(file, "checkType(l,{2}{0},out {1});", n, v, nprefix);
 		}
@@ -1488,8 +1494,11 @@ namespace SLua
 		{
 			if (t.IsValueType)
 			{
-				Write(file, "{0} self;", FullName(t));
-				Write(file, "checkType(l,1,out self);");
+				Write(file, "{0} self;", TypeDecl(t));
+				if(IsBaseType(t))
+					Write(file, "checkType(l,1,out self);");
+				else
+					Write(file, "checkValueType(l,1,out self);");
 			}
 			else
 				Write(file, "{0} self=({0})checkSelf(l);", TypeDecl(t));
@@ -1555,7 +1564,7 @@ namespace SLua
 				else if (m.Name == "op_GreaterThanOrEqual")
 					Write(file, "{0}(a2<=a1);", ret);
 				else
-					Write(file, "{3}{2}.{0}({1});", m.Name, FuncCall(m), t.FullName, ret);
+					Write(file, "{3}{2}.{0}({1});", m.Name, FuncCall(m), TypeDecl(t), ret);
 			}
 			else
 				Write(file, "{2}self.{0}({1});", m.Name, FuncCall(m), ret);
@@ -1676,10 +1685,27 @@ namespace SLua
 					Write(file, "LuaDelegation.checkDelegate(l,{0},out a{1});", n + argstart, n + 1);
 				}
 				else if (isparams)
-					Write(file, "checkParams(l,{0},out a{1});", n + argstart, n + 1);
+				{
+					if(t.GetElementType().IsValueType && !IsBaseType(t.GetElementType()))
+						Write(file, "checkValueParams(l,{0},out a{1});", n + argstart, n + 1);
+					else
+						Write(file, "checkParams(l,{0},out a{1});", n + argstart, n + 1);
+				}
+				else if (t.IsValueType && !IsBaseType(t))
+					Write(file, "checkValueType(l,{0},out a{1});", n + argstart, n + 1);
 				else
 					Write(file, "checkType(l,{0},out a{1});", n + argstart, n + 1);
 			}
+		}
+
+		bool IsBaseType(Type t)
+		{
+			return t.IsPrimitive
+				|| t == typeof(Color)
+				|| t == typeof(Vector2)
+				|| t == typeof(Vector3)
+				|| t == typeof(Vector4)
+				|| t == typeof(Quaternion);
 		}
 		
 		string FullName(string str)
