@@ -448,6 +448,7 @@ namespace SLua
 		static IntPtr oldptr = IntPtr.Zero;
 		static LuaState oldstate = null;
 		static public LuaCSFunction errorFunc = new LuaCSFunction(errorReport);
+		static public int PCallCSFunctionRef = 0;
 
 		public bool isMainThread()
 		{
@@ -492,6 +493,20 @@ namespace SLua
 			refQueue = new Queue<UnrefPair>();
             ObjectCache.make(L);
 
+			string PCallCSFunction = @"
+	return function(protect_cs_func, cs_func)
+		return function(...)
+			local ret = {protect_cs_func(cs_func, ...)}
+			assert(type(ret[1]) == 'boolean', type(ret[1]))
+			assert(ret[1], ret[2])
+			return unpack(ret, 2)
+		end
+	end
+";
+			
+			LuaDLL.luaL_dostring (L, PCallCSFunction);
+			PCallCSFunctionRef = LuaDLL.luaL_ref(L, LuaIndexes.LUA_REGISTRYINDEX);
+
             pcall(L, init);
 		}
 
@@ -520,14 +535,6 @@ coroutine.resume=function(co,...)
 	local ret={resume(co,...)}
 	if not ret[1] then UnityEngine.Debug.LogError(debug.traceback(co,ret[2])) end
 	return unpack(ret)
-end
-
-coroutine.wrap = function(func)
-	local co = coroutine.create(func)
-	return function(...)
-		local ret={coroutine.resume(co,...)}
-		return unpack(ret, 2)
-	end
 end
 ";
 

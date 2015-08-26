@@ -144,10 +144,7 @@ namespace LuaInterface
 
 		public static void luaL_error(IntPtr luaState, string message)
 		{
-			LuaDLL.luaL_where(luaState, 1);
-			LuaDLL.lua_pushstring(luaState, message);
-			LuaDLL.lua_concat(luaState, 2);
-			LuaDLL.lua_error(luaState);
+			throw new Exception(message);
 		}
 
 		public static void luaL_error(IntPtr luaState, string fmt, params object[] args)
@@ -475,10 +472,34 @@ namespace LuaInterface
 		[DllImport(LUADLL, CallingConvention = CallingConvention.Cdecl)]
 		public static extern void luaL_checktype(IntPtr luaState, int p, LuaTypes t);
 
+		[MonoPInvokeCallbackAttribute(typeof(LuaCSFunction))]
+		private static int PCallCSFunction(IntPtr l)
+		{
+			try{
+				IntPtr fn = LuaDLL.lua_touserdata (l, 1);
+				LuaCSFunction f = Marshal.GetDelegateForFunctionPointer (fn, typeof(LuaCSFunction)) as LuaCSFunction;
+				LuaDLL.lua_remove (l, 1);
+				
+				int ret = f(l);
+				LuaDLL.lua_pushboolean(l, true);
+				LuaDLL.lua_insert(l, -(ret+1));
+				return ret + 1;
+			}catch(Exception e)
+			{
+				LuaDLL.lua_pushboolean(l, false);
+				LuaDLL.lua_pushstring(l, e.ToString());
+				return 2;
+			}
+		}
+
+		private static IntPtr PCallCSFunctionPtr = Marshal.GetFunctionPointerForDelegate(new LuaCSFunction(PCallCSFunction));
+
 		public static void lua_pushcfunction(IntPtr luaState, LuaCSFunction function)
 		{
-			IntPtr fn = Marshal.GetFunctionPointerForDelegate(function);
-			lua_pushcclosure(luaState, fn, 0);
+			LuaDLL.lua_getref (luaState, SLua.LuaState.PCallCSFunctionRef);
+			LuaDLL.lua_pushcclosure(luaState, PCallCSFunctionPtr, 0);
+			LuaDLL.lua_pushlightuserdata (luaState, Marshal.GetFunctionPointerForDelegate(function));
+			LuaDLL.lua_call (luaState, 2, 1);
 		}
 
 		[DllImport(LUADLL, CallingConvention = CallingConvention.Cdecl)]
