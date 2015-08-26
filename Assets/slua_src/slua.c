@@ -491,3 +491,23 @@ LUALIB_API int luaLS_loadbuffer(lua_State *L, const char *buff, int sz, const ch
 	return luaL_loadbuffer(L, buff, (size_t)sz, name);
 }
 
+static int PCallCSFunction(lua_State *L)
+{	
+	int argc = lua_gettop(L);
+	
+	lua_pushvalue(L, lua_upvalueindex(1));
+	lua_insert(L, 1);
+	
+	lua_call(L, argc, LUA_MULTRET);
+	
+	if (!lua_toboolean(L, 1)){
+		return luaL_error(L, "%s", luaL_optstring(L, 2, "assertion failed!"));
+	}
+	lua_remove(L, 1);
+	return lua_gettop(L);
+}
+
+LUALIB_API void luaS_pushcsfunction(lua_State *L)
+{
+	lua_pushcclosure(L, PCallCSFunction, 1);
+}

@@ -471,14 +471,14 @@ namespace LuaInterface
 
 		[DllImport(LUADLL, CallingConvention = CallingConvention.Cdecl)]
 		public static extern void luaL_checktype(IntPtr luaState, int p, LuaTypes t);
-
+		
+		private static System.Collections.Generic.Dictionary<int, LuaCSFunction> dict = new System.Collections.Generic.Dictionary<int, LuaCSFunction>();
 		[MonoPInvokeCallbackAttribute(typeof(LuaCSFunction))]
 		private static int PCallCSFunction(IntPtr l)
 		{
 			try{
-				IntPtr fn = LuaDLL.lua_touserdata (l, 1);
-				LuaCSFunction f = Marshal.GetDelegateForFunctionPointer (fn, typeof(LuaCSFunction)) as LuaCSFunction;
-				LuaDLL.lua_remove (l, 1);
+				int fn = LuaDLL.lua_tointeger (l, lua_upvalueindex(1));
+				LuaCSFunction f = dict [fn];
 				
 				int ret = f(l);
 				LuaDLL.lua_pushboolean(l, true);
@@ -496,10 +496,11 @@ namespace LuaInterface
 
 		public static void lua_pushcfunction(IntPtr luaState, LuaCSFunction function)
 		{
-			LuaDLL.lua_getref (luaState, SLua.LuaState.PCallCSFunctionRef);
-			LuaDLL.lua_pushcclosure(luaState, PCallCSFunctionPtr, 0);
-			LuaDLL.lua_pushlightuserdata (luaState, Marshal.GetFunctionPointerForDelegate(function));
-			LuaDLL.lua_call (luaState, 2, 1);
+			int count = dict.Count;
+			dict [count] = function;
+			LuaDLL.lua_pushinteger (luaState, count);
+			LuaDLL.lua_pushcclosure(luaState, PCallCSFunctionPtr, 1);
+			LuaDLLWrapper.luaS_pushcsfunction (luaState);
 		}
 
 		[DllImport(LUADLL, CallingConvention = CallingConvention.Cdecl)]

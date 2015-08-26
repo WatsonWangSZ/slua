@@ -88,6 +88,9 @@
         [DllImport(LUADLL, CallingConvention = CallingConvention.Cdecl)]
         public static extern void luaS_pushlstring(IntPtr luaState, byte[] str, int size);
 
+		[DllImport(LUADLL, CallingConvention = CallingConvention.Cdecl)]
+		public static extern void luaS_pushcsfunction(IntPtr luaState);
+
 
         [DllImport(LUADLL, CallingConvention = CallingConvention.Cdecl)]
         public static extern int luaL_getmetafield(IntPtr luaState, int stackPos, string field);
